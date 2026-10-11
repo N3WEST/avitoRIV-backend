@@ -1,4 +1,3 @@
-```python
 import os
 import re
 from urllib.parse import urlparse
@@ -195,4 +194,4 @@ async def search_avito(request: SearchRequest):
     )
 
     return SearchResponse(items=parsed_items[:5])
-```
+
