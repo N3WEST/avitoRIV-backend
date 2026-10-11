@@ -3,9 +3,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
-import subprocess import sys
-Устанавливаем Chromium при старте, если его нет
-try: subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True) except Exception: pass
 
 app = FastAPI()
 
@@ -47,7 +44,9 @@ async def search_avito(request: SearchRequest):
     try:
         async with async_playwright() as p:
             # Запускаем браузер в headless режиме
-            browser = await p.chromium.launch(headless=True)
+           browser = await p.chromium.connect_over_cdp(
+    "wss://production-sfo.browserless.io?token=2VQHMbDl1pGaIPkcac6258d91722229bcda869c9a021a914e"
+)
             
             # Подменяем User-Agent на реальный
             context = await browser.new_context(
