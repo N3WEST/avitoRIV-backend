@@ -3,6 +3,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
+import subprocess import sys
+Устанавливаем Chromium при старте, если его нет
+try: subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True) except Exception: pass
 
 app = FastAPI()
 
