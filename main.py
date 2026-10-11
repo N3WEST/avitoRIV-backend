@@ -10,9 +10,6 @@ from playwright.async_api import async_playwright
 
 app = FastAPI(title="Avito Cheap Search API")
 
-
-# CORS: разрешает обращения с HTML-файла.
-# Для продакшена лучше указать конкретный домен сайта.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,7 +19,6 @@ app.add_middleware(
 )
 
 
-# Render -> Environment -> BROWSERLESS_TOKEN
 BROWSERLESS_TOKEN = os.getenv("BROWSERLESS_TOKEN")
 
 BROWSERLESS_URL = (
@@ -40,6 +36,7 @@ class AvitoItem(BaseModel):
     title: str
     price: str
     url: str
+    image: str = ""
 
 
 class SearchResponse(BaseModel):
@@ -48,7 +45,6 @@ class SearchResponse(BaseModel):
 
 def validate_avito_url(url: str) -> bool:
     parsed = urlparse(url)
-
     return (
         parsed.scheme == "https"
         and parsed.hostname in {"avito.ru", "www.avito.ru"}
@@ -56,10 +52,8 @@ def validate_avito_url(url: str) -> bool:
 
 
 def extract_numeric_price(price_str: str) -> int:
-    """Извлекает числовую цену из текста."""
     if not price_str:
         return 0
-
     digits = re.sub(r"[^\d]", "", price_str)
     return int(digits) if digits else 0
 
@@ -128,7 +122,6 @@ async def search_avito(request: SearchRequest):
                 )
                 print("Фактический URL:", page.url)
 
-                # Даём JavaScript страницы время на выполнение.
                 try:
                     await page.wait_for_load_state(
                         "networkidle",
@@ -139,7 +132,6 @@ async def search_avito(request: SearchRequest):
 
                 await page.wait_for_timeout(4000)
 
-                # Основные и резервные селекторы карточек.
                 selectors = [
                     '[data-marker="item"]',
                     '[data-testid="item"]',
@@ -159,10 +151,8 @@ async def search_avito(request: SearchRequest):
                         )
                         break
 
-                # Диагностика, если карточки не обнаружены.
                 if not items:
                     body_text = ""
-
                     try:
                         body_text = (
                             await page.locator("body").inner_text()
@@ -173,30 +163,20 @@ async def search_avito(request: SearchRequest):
                     print("Карточки не найдены.")
                     print("Текст страницы:", body_text)
 
-                    try:
-                        print(
-                            "Заголовок страницы:",
-                            await page.title(),
-                        )
-                    except Exception:
-                        pass
-
                     raise HTTPException(
                         status_code=502,
                         detail=(
                             "Авито не вернуло доступные карточки. "
-                            "Проверь Logs в Render: страница могла "
-                            "измениться, не загрузиться или показать "
-                            "проверку безопасности."
+                            "Проверь Logs в Render."
                         ),
                     )
 
-                # Извлекаем названия, цены и ссылки.
-                for item in items[:50]:
+                for item in items[:60]:
                     try:
                         title = ""
                         href = ""
                         price = ""
+                        image = ""
 
                         title_selectors = [
                             'a[data-marker="item-title"]',
@@ -208,34 +188,23 @@ async def search_avito(request: SearchRequest):
                         title_el = None
 
                         for selector in title_selectors:
-                            title_el = await item.query_selector(
-                                selector
-                            )
-
+                            title_el = await item.query_selector(selector)
                             if title_el:
                                 break
 
                         if title_el:
-                            title = (
-                                await title_el.inner_text()
-                            ).strip()
-
+                            title = (await title_el.inner_text()).strip()
                             href = (
-                                await title_el.get_attribute("href")
-                                or ""
+                                await title_el.get_attribute("href") or ""
                             )
 
-                        # Запасной поиск ссылки внутри карточки.
                         if not href:
                             link_el = await item.query_selector("a[href]")
-
                             if link_el:
                                 href = (
-                                    await link_el.get_attribute("href")
-                                    or ""
+                                    await link_el.get_attribute("href") or ""
                                 )
 
-                        # Извлекаем цену.
                         price_selectors = [
                             '[data-marker="item-price"]',
                             '[itemprop="price"]',
@@ -243,19 +212,14 @@ async def search_avito(request: SearchRequest):
                         ]
 
                         for selector in price_selectors:
-                            price_el = await item.query_selector(
-                                selector
-                            )
+                            price_el = await item.query_selector(selector)
 
                             if price_el:
                                 if selector == '[itemprop="price"]':
                                     price = (
-                                        await price_el.get_attribute(
-                                            "content"
-                                        )
+                                        await price_el.get_attribute("content")
                                         or ""
                                     )
-
                                     if not price:
                                         price = (
                                             await price_el.inner_text()
@@ -268,13 +232,30 @@ async def search_avito(request: SearchRequest):
                                 if price:
                                     break
 
+                        # Извлекаем картинку
+                        img_selectors = [
+                            'img[data-marker="item-photo"]',
+                            'img[itemprop="image"]',
+                            'img',
+                        ]
+
+                        for selector in img_selectors:
+                            img_el = await item.query_selector(selector)
+                            if img_el:
+                                image = (
+                                    await img_el.get_attribute("src")
+                                    or await img_el.get_attribute("data-src")
+                                    or ""
+                                )
+                                if image:
+                                    break
+
                         if not title or not href:
                             continue
 
                         if href.startswith("/"):
                             href = "https://www.avito.ru" + href
 
-                        # Не принимаем внешние ссылки.
                         parsed_href = urlparse(href)
 
                         if (
@@ -289,6 +270,7 @@ async def search_avito(request: SearchRequest):
                                 title=title,
                                 price=price or "Цена не указана",
                                 url=href,
+                                image=image,
                             )
                         )
 
@@ -311,15 +293,12 @@ async def search_avito(request: SearchRequest):
             status_code=502,
             detail=(
                 "Не удалось получить объявления. "
-                "Проверь подключение Browserless и Logs в Render. "
                 f"Причина: {type(e).__name__}"
             ),
         ) from e
 
     print(f"Всего извлечено объявлений: {len(parsed_items)}")
 
-    # Объявления с известной ценой идут первыми.
-    # Затем сортировка от дешёвых к дорогим.
     parsed_items.sort(
         key=lambda item: (
             extract_numeric_price(item.price) == 0,
@@ -327,4 +306,4 @@ async def search_avito(request: SearchRequest):
         )
     )
 
-    return SearchResponse(items=parsed_items[:5])
+    return SearchResponse(items=parsed_items[:30])
