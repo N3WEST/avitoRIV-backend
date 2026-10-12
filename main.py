@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 load_dotenv()
 
-from database import SessionLocal, init_db  # noqa: E402
+from database import init_db  # noqa: E402
 from models import User  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
