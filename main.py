@@ -1,15 +1,17 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from aiogram import Bot
+from aiogram import Bot, Dispatcher
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot import register_handlers
 from database import SessionLocal, get_session, init_db
 from models import Favorite, FoundItem, SearchTask, User
 from payment import create_payment, handle_webhook
@@ -63,23 +65,40 @@ class ExtendSearchRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    app.state.bot = None
+
+    bot = None
+    polling_task = None
 
     if BOT_TOKEN:
         bot = Bot(token=BOT_TOKEN)
-        app.state.bot = bot
+        dp = Dispatcher()
+        register_handlers(dp)
+
         configure_scheduler(bot)
+
+        polling_task = asyncio.create_task(
+            dp.start_polling(bot, handle_signals=False)
+        )
+        logger.info("Telegram bot polling started")
     else:
         logger.warning(
-            "TELEGRAM_BOT_TOKEN не задан. Мониторинг не сможет отправлять уведомления."
+            "TELEGRAM_BOT_TOKEN не задан. Бот не будет отвечать."
         )
 
     try:
         yield
     finally:
+        if polling_task:
+            polling_task.cancel()
+            try:
+                await polling_task
+            except asyncio.CancelledError:
+                pass
+
         await shutdown_scheduler()
-        if app.state.bot:
-            await app.state.bot.session.close()
+
+        if bot:
+            await bot.session.close()
 
 
 app = FastAPI(
@@ -114,9 +133,7 @@ async def api_create_search(request: SearchCreateRequest):
             username=request.username,
         )
         return {"search": task}
-    except SearchLimitError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except SearchPermissionError as exc:
+    except (SearchLimitError, SearchPermissionError) as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
