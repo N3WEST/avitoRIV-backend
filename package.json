@@ -1,0 +1,17 @@
+{
+  "name": "riv-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --no-warnings --env-file-if-exists=.env server.js",
+    "dev": "AVITO_MODE=mock node --no-warnings --env-file-if-exists=.env server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "undici": "^6.21.0"
+  }
+}

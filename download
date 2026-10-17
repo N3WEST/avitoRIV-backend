@@ -1,0 +1,35 @@
+import { cfg } from './config.js';
+import { db, nowISO } from './db.js';
+import { scanSearch, notifyExpired } from './core.js';
+import { reconcilePayments } from './payments.js';
+import { AvitoBlocked } from './avito.js';
+
+let running = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+export async function tick() {
+  if (running) return;
+  running = true;
+  try {
+    await notifyExpired();
+    const rows = db.prepare('SELECT * FROM searches WHERE is_active=1 AND deleted=0 AND expires_at>?').all(nowISO());
+    const cache = new Map();
+    for (const s of rows) {
+      try {
+        const before = cache.size;
+        const n = await scanSearch(s, cache);
+        if (n) console.log(`[scan] #${s.id} «${s.title}»: +${n}`);
+        if (cache.size > before) await sleep(1500);   // не долбим Avito чаще раза в 1.5 с
+      } catch (e) {
+        console.warn(`[scan] #${s.id}:`, e.message);
+        if (e instanceof AvitoBlocked) { console.warn('[scan] Avito блокирует — пропускаем остаток цикла (нужен прокси)'); break; }
+      }
+    }
+  } finally { running = false; }
+}
+
+export function startWorker() {
+  setInterval(() => tick().catch(e => console.warn('tick', e.message)), cfg.scanMinutes * 60000);
+  setInterval(() => reconcilePayments().catch(e => console.warn('reconcile', e.message)), 60000);
+  setTimeout(() => tick().catch(() => {}), 5000);
+}

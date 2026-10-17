@@ -1,0 +1,40 @@
+# /etc/nginx/sites-available/riv   (замени example.com на свой домен)
+limit_req_zone $binary_remote_addr zone=riv_api:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name example.com;
+    server_tokens off;
+
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;   # certbot --nginx -d example.com
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 9m;   # фото для поиска по фото (приложение само режет до 8 МБ)
+
+    location /api/ {
+        limit_req zone=riv_api burst=30 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host              $host;
+        # ВАЖНО: перезаписываем, а не дописываем — иначе клиент подделает свой IP заголовком X-Forwarded-For
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # служебные файлы не отдаём никогда
+    location ~ /\.(env|git) { deny all; return 404; }
+}

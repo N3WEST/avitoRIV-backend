@@ -1,0 +1,29 @@
+# /etc/systemd/system/riv.service
+[Unit]
+Description=RIV backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=riv
+Group=riv
+WorkingDirectory=/opt/riv
+EnvironmentFile=/etc/riv.env                 # секреты: chmod 600, владелец root
+ExecStart=/usr/bin/node --no-warnings server.js
+Restart=always
+RestartSec=3
+
+# изоляция процесса: даже при взломе приложения вреда меньше
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/riv
+
+[Install]
+WantedBy=multi-user.target
